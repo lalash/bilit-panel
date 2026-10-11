@@ -74,12 +74,15 @@ prerequisites() {
   else warn "   fail2ban is not installed"; fi
   echo -e "${blue}== Docker${plain}"
   if docker compose version >/dev/null 2>&1; then ok "   already installed: $(docker --version | sed 's/,.*//')"
+    # BuildKit (buildx): faster builds, and its cache stays in check (without it old build layers fill the disk)
+    docker buildx version >/dev/null 2>&1 || { apt-get -y -q install docker-buildx >/dev/null 2>&1 || apt-get -y -q install docker-buildx-plugin >/dev/null 2>&1; } || true
   else
     apt_wait
     if timeout 900 sh -c 'curl -fsSL --max-time 30 https://get.docker.com -o /tmp/get-docker.sh && sh /tmp/get-docker.sh' >/dev/null 2>&1; then ok "   installed from download.docker.com"
     else
       warn "   download.docker.com is not reachable: using Ubuntu's own packages"
       apt-get -y -q install docker.io >/dev/null && { apt-get -y -q install docker-compose-v2 >/dev/null 2>&1 || apt-get -y -q install docker-compose-plugin >/dev/null 2>&1; }
+      apt-get -y -q install docker-buildx >/dev/null 2>&1 || true
     fi
     rm -f /tmp/get-docker.sh
     systemctl enable --now docker >/dev/null 2>&1 || true
@@ -206,6 +209,16 @@ restore_file() {
   "$STACK/backup.sh" && "$STACK/restore.sh" "$f"
 }
 
+free_disk() {
+  echo "Before: $(df -h / | awk 'NR==2{print $3" used, "$4" free"}')"
+  docker image prune -f >/dev/null
+  docker builder prune -af >/dev/null 2>&1 || true
+  # unused images, except those the site needs to run and to back up (they cannot always be downloaded again)
+  docker images --format '{{.Repository}}:{{.Tag}}' | grep -vE '^(alpine:3|postgres:18-alpine|caddy:2|bilit-web:prod|bilit-web:test|bilit-ops:latest)$' | grep -v '<none>' | xargs -r docker image rm >/dev/null 2>&1 || true
+  journalctl --vacuum-time=14d >/dev/null 2>&1; apt-get -y -q clean
+  echo "After:  $(df -h / | awk 'NR==2{print $3" used, "$4" free"}')"
+}
+
 make_bundle() {
   local cn
   read -rp "Ubuntu release of the TARGET server (jammy = 22.04, noble = 24.04) [noble]: " cn
@@ -284,7 +297,7 @@ show_menu() {
     17) printf 'net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n' > /etc/sysctl.d/99-bbr.conf && sysctl --system >/dev/null && ok "BBR: $(sysctl -n net.ipv4.tcp_congestion_control)"; pause ;;
     18) apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold upgrade
         [ -f /var/run/reboot-required ] && warn "A restart of the server is needed: run  reboot  at a quiet hour."; pause ;;
-    19) df -h / | tail -1; docker image prune -af >/dev/null; docker builder prune -af >/dev/null; journalctl --vacuum-time=14d >/dev/null 2>&1; apt-get -y -q clean; df -h / | tail -1; pause ;;
+    19) free_disk; pause ;;
     20) read -rp "Remove the server panel? The website is not touched. [y/N] " y
         if [ "$y" = y ]; then docker compose rm -sf ops; rm -f "$STACK/caddy/inner/10-ops.caddy" "$STACK/caddy/sites/10-ops.caddy" "$STACK/caddy/inner/20-maintenance.caddy"; docker exec bilit-caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1; ok "Panel removed. Its settings stay in $STACK/ops (delete by hand if wanted)."; fi; pause ;;
     21) read -rp "Update both sites to the latest version from GitHub? A full backup is made first. [y/N] " y; [ "$y" = y ] && from_github; pause ;;
