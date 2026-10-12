@@ -198,15 +198,20 @@ show_status() {
 
 restore_file() {
   local files=() f
-  for f in $(ls -t /var/backups/bilit/bilit-*.tar.gz 2>/dev/null) /root/bilit-2*.tar.gz; do [ -f "$f" ] && files+=("$f"); done
-  echo "Full server backups (made by option 15):"; for f in "${files[@]}"; do echo "  $f ($(du -h "$f" | cut -f1))"; done
+  for f in $(ls -t /var/backups/bilit/bilit-*.tar.gz /var/backups/bilit/bilit-*.tar.gz.enc /var/backups/bilit/incoming/bilit-*.tar.gz* 2>/dev/null) /root/bilit-2*.tar.gz*; do [ -f "$f" ] && [[ "$f" != *part*of* ]] && files+=("$f"); done
+  echo "Backups (made by option 15 or the panel; parts from Telegram: join them in the panel, or cat them in order):"
+  for f in "${files[@]}"; do echo "  $f ($(du -h "$f" | cut -f1))"; done
   read -rp "Backup file to restore [${files[0]:-}]: " f
   f=${f:-${files[0]:-}}
   [ -f "$f" ] || { err "No such file: $f"; return 1; }
   warn "ALL data of both sites (users, orders, photos) is replaced by this backup. A backup of the current state is made first."
+  local only
+  read -rp "Restore what? all = both sites, site = main site only, test = staging only [all]: " only
+  only=${only:-all}
+  case "$only" in all|site|test) ;; *) err "all, site or test"; return 1 ;; esac
   read -rp "Type RESTORE to continue: " w
   [ "$w" = RESTORE ] || { echo "Cancelled."; return 0; }
-  "$STACK/backup.sh" && "$STACK/restore.sh" "$f"
+  "$STACK/backup.sh" && "$STACK/restore.sh" "$f" "$only"   # an encrypted backup asks for its password
 }
 
 free_disk() {
@@ -289,7 +294,7 @@ show_menu() {
     14) need_running
         read -rp "Maintenance page: on or off? [on/off] " m
         [ "$m" = on ] || [ "$m" = off ] && cli maintenance "$m" && reload; pause ;;
-    15) "$STACK/backup.sh"; pause ;;
+    15) need_running; cli backup-now; pause ;;
     16) need_running
         read -rp "Telegram bot token: " tok
         read -rp "Chat id for alerts (optional, Enter to skip; the group is set in the panel): " chat
@@ -333,7 +338,7 @@ case "${1:-}" in
   restart) restart ;;
   status) show_status ;;
   log) docker logs --tail 100 -f $C ;;
-  backup) "$STACK/backup.sh" ;;
+  backup) cli backup-now ;;
   setup-url) setup_url ;;
   "") while true; do menu; done ;;
   *) echo "usage: bilit-panel [show|start|stop|restart|status|log|backup|setup-url]" ;;
