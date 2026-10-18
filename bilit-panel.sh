@@ -41,7 +41,7 @@ prerequisites() {
   echo -e "${blue}== System packages${plain}"
   apt_wait
   if timeout 300 apt-get update -q >/dev/null 2>&1; then
-    apt-get -y -q -o DPkg::Lock::Timeout=300 install ca-certificates curl openssl tar gzip ufw fail2ban unattended-upgrades >/dev/null && ok "   curl, openssl, ufw, fail2ban, unattended-upgrades"
+    apt-get -y -q -o DPkg::Lock::Timeout=300 install ca-certificates curl openssl tar gzip ufw fail2ban unattended-upgrades 7zip >/dev/null && ok "   curl, openssl, ufw, fail2ban, unattended-upgrades, 7zip"
   else warn "   apt cannot reach a package mirror; continuing with what is installed"; fi
   echo -e "${blue}== Time zone and automatic security updates${plain}"
   timedatectl set-timezone UTC 2>/dev/null || true
@@ -198,8 +198,8 @@ show_status() {
 
 restore_file() {
   local files=() f
-  for f in $(ls -t /var/backups/bilit/bilit-*.tar.gz /var/backups/bilit/bilit-*.tar.gz.enc /var/backups/bilit/incoming/bilit-*.tar.gz* 2>/dev/null) /root/bilit-2*.tar.gz*; do [ -f "$f" ] && [[ "$f" != *part*of* ]] && files+=("$f"); done
-  echo "Backups (made by option 15 or the panel; parts from Telegram: join them in the panel, or cat them in order):"
+  for f in $(ls -t /var/backups/bilit/bilit-*.zip /var/backups/bilit/bilit-*.tar.gz /var/backups/bilit/bilit-*.tar.gz.enc /var/backups/bilit/incoming/bilit-*.zip /var/backups/bilit/incoming/bilit-*.tar.gz* 2>/dev/null) /root/bilit-2*.zip /root/bilit-2*.tar.gz*; do [ -f "$f" ] && [[ "$f" != *part*of* ]] && files+=("$f"); done
+  echo "Backups (made by option 15 or the panel). Telegram parts (.zip.001 ...): join them in the panel, or: cat FILE.zip.0* > FILE.zip"
   for f in "${files[@]}"; do echo "  $f ($(du -h "$f" | cut -f1))"; done
   read -rp "Backup file to restore [${files[0]:-}]: " f
   f=${f:-${files[0]:-}}
